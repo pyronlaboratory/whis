@@ -7,7 +7,7 @@ A Domain-Specific Language for Physics Simulation, Education, and Analysis
 Whis is an open-source, domain-specific programming language designed to bridge the gap between whiteboard physics and high-performance bare-metal execution.
 The design rests on three non-negotiable principles:
 
-- **Syntax as Notation**: Writing Whis should feel identical to writing equations and configuring structural diagrams on a physics whiteboard. Syntax friction like structural boilerplate, explicit templates (Vector3D<float64>), and manual unit conversions are treated as language defects.
+- **Syntax as Notation**: Writing Whis should feel identical to writing equations and configuring structural diagrams on a physics whiteboard. Syntax friction like structural boilerplate, explicit templates (`Vector3D<float64>`), and manual unit conversions are treated as language defects.
 - **Compile-Time Physical Integrity**: The language treats physical dimensions as a fundamental aspect of the type system. Dimensional discrepancies (e.g., adding mass to velocity) are caught during compilation rather than failing during execution.
 - **Dual Engine Runtime**: Whis operates natively as a hybrid language. It features a declarative Configuration Phase to model space, boundaries, and actors, and an imperative Evaluation Phase to compute arbitrary equations, vector fields, and custom numerical methods.
 
