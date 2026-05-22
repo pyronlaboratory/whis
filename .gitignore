@@ -69,3 +69,6 @@ Testing/
 
 # Submodules
 studio/
+
+# System-specific files
+.DS_Store
