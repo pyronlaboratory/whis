@@ -24,7 +24,8 @@ struct ControlStmtRef : pegtl::seq<ControlStmt> {};
 
 // Line comments start with // and consume up to the newline
 struct LineComment
-    : pegtl::seq<pegtl::two<'/'>, pegtl::until<pegtl::at<pegtl::eolf>>> {};
+    : pegtl::seq<pegtl::two<'/'>,
+                 pegtl::until<pegtl::at<pegtl::eolf>, pegtl::any>> {};
 
 // Horizontal space (spaces and tabs)
 struct HSpace : pegtl::one<' ', '\t'> {};
@@ -86,7 +87,7 @@ struct Identifier
 // 3. Literals & Primitives
 // =========================================================================
 
-// Numeric Literals supporting scientific notation
+// Numeric literals supporting scientific notation
 struct Sign : pegtl::one<'+', '-'> {};
 struct Exponent : pegtl::seq<pegtl::one<'e', 'E'>, pegtl::opt<Sign>,
                              pegtl::plus<pegtl::digit>> {};
@@ -124,6 +125,8 @@ struct UnitAtom
           TAO_PEGTL_STRING("V"), TAO_PEGTL_STRING("A"), TAO_PEGTL_STRING("C")> {
 };
 
+// Strict isolation lookahead rule ensures physical units are cleanly
+// distinguished from normal variable identifiers
 struct BaseUnit : pegtl::seq<UnitAtom, pegtl::not_at<pegtl::identifier_other>> {
 };
 

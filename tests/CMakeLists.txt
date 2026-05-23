@@ -2,16 +2,17 @@
 include(CTest)
 
 #-----------------------------------------------------------------------------
-# Frontend / Parser Test Target
+# Parser Test Target
 #-----------------------------------------------------------------------------
 add_executable(whis_parser_tests
     parser/test_grammar_rules.cpp
+    parser/test_lexical_tokens.cpp
 )
 target_link_libraries(whis_parser_tests PRIVATE whis_core)
 add_test(NAME Whis.ParserTests COMMAND whis_parser_tests)
 
 #-----------------------------------------------------------------------------
-# AST / Structural Test Target
+# AST Test Target
 #-----------------------------------------------------------------------------
 add_executable(whis_ast_tests
     ast/test_ast_integrity.cpp
