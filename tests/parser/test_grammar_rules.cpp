@@ -11,16 +11,18 @@ struct SpecTestCase {
   std::string source_code;
 };
 
-int main() {
+void run_grammar_rules_tests() {
   print_suite_header("Whis Parser Grammar Rules");
 
   const std::vector<SpecTestCase> test_cases = {
-      {"§2.3 Unit Scales and Literals",
+      // §2.3
+      {"Unit Scales and Literals",
        "let structural_length = 45 cm;\n"
        "let aircraft_speed = 900 km/h;\n"
        "let target_mass = 4.2 mg;"},
 
-      {"§5.1 Declarative Primitives for Dynamic Entities",
+      // §5.1
+      {"Declarative Primitives for Dynamic Entities",
        "create Projectile {\n"
        "    shape: circle,\n"
        "    radius: 0.5 m,\n"
@@ -31,7 +33,8 @@ int main() {
        "    charge: 0.0 C\n"
        "}"},
 
-      {"§5.1 Declarative Primitives for Static Coefficient Surfaces",
+      // §5.1
+      {"Declarative Primitives for Static Coefficient Surfaces",
        "create Ground {\n"
        "    shape: plane,\n"
        "    normal: (0, 1),\n"
@@ -40,12 +43,14 @@ int main() {
        "    bounciness: 0.65\n"
        "}"},
 
-      {"§5.2 Environmental Modifiers",
+      // §5.2
+      {"Environmental Modifiers",
        "enable gravity(9.81 m/s^2);\n"
        "enable air_resistance(density: 1.225 kg/m^3, drag_coefficient: 0.47);\n"
        "enable electrostatic_field(intensity: (0 V/m, -100 V/m));"},
 
-      {"§6.1 Control Flow & Functions",
+      // §6.1
+      {"Control Flow & Functions",
        "fn calculate_gravity(m1: kg, m2: kg, distance: m) -> N {\n"
        "    let G = 6.6743e-11 N*m^2/kg^2;\n"
        "    return G * (m1 * m2) / (distance ^ 2);\n"
@@ -57,7 +62,8 @@ int main() {
        "    }\n"
        "}"},
 
-      {"§6.2 Custom Differential Solvers for Step Routines",
+      // §6.2
+      {"Custom Differential Solvers for Step Routines",
        "step system(dt: s) {\n"
        "    for obj in system.entities {\n"
        "        if (obj.is_static) { continue; }\n"
@@ -76,5 +82,11 @@ int main() {
     WHIS_ASSERT(result.success, "Syntax rejected: " + result.error_log);
     print_case_success();
   }
+}
+
+int main() {
+  extern void run_lexical_token_tests();
+  run_lexical_token_tests();
+  run_grammar_rules_tests();
   return 0;
 }
