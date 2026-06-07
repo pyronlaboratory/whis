@@ -83,10 +83,3 @@ void run_grammar_rules_tests() {
     print_case_success();
   }
 }
-
-int main() {
-  extern void run_lexical_token_tests();
-  run_lexical_token_tests();
-  run_grammar_rules_tests();
-  return 0;
-}
