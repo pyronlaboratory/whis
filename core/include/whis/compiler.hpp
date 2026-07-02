@@ -13,6 +13,7 @@ struct ParseResult {
   whis::ast::Program ast;
 };
 
+ParseResult parse_only(const std::string& source);
 ParseResult generate_ast(const std::string& source);
 std::string generate_source(const whis::ast::Program& ast);
 }  // namespace whis::compiler

@@ -4,11 +4,13 @@
 set(CORE_HEADERS
     include/whis/grammar.hpp
     include/whis/ast.hpp
+    include/whis/dimensions.hpp
 )
 
 set(CORE_SOURCES
     src/compiler.cpp
     src/ast_serialize.cpp
+    src/dimensions.cpp
 )
 
 add_library(whis_core STATIC ${CORE_HEADERS} ${CORE_SOURCES})

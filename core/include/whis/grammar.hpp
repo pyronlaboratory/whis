@@ -162,17 +162,20 @@ struct DottedCall
                                         SpaceOrComment>>,
                  BlockSpace, pegtl::one<')'>> {};
 
+struct TweakExpr
+    : pegtl::seq<K_tweak, InlineSpace, pegtl::one<'('>, BlockSpace,
+                 ExpressionRef, BlockSpace, pegtl::one<','>, InlineSpace,
+                 K_range, InlineSpace, pegtl::one<':'>, BlockSpace,
+                 ExpressionRef, BlockSpace, TAO_PEGTL_STRING(".."), BlockSpace,
+                 ExpressionRef, BlockSpace, pegtl::one<')'>> {};
+
 struct Primary
     : pegtl::sor<
           VectorLiteral, NumericLiteral,
           // Evaluates parameterized runtime parameter modulations prior to
           // evaluating identifiers to protect downstream keyword symbols from
           // being prematurely consumed as generic object names.
-          pegtl::seq<K_tweak, InlineSpace, pegtl::one<'('>, BlockSpace,
-                     ExpressionRef, BlockSpace, pegtl::one<','>, InlineSpace,
-                     K_range, InlineSpace, pegtl::one<':'>, BlockSpace,
-                     ExpressionRef, BlockSpace, TAO_PEGTL_STRING(".."),
-                     BlockSpace, ExpressionRef, BlockSpace, pegtl::one<')'>>,
+          TweakExpr,
           // Evaluates compound calls (obj.fn()) before simple paths (obj.field)
           // to prevent the name sequence from consuming the prefix greedily.
           DottedCall, DottedName,
@@ -182,9 +185,9 @@ struct Primary
 // Binds an optional leading sign, exponential power, and dimensional
 // unit matrix directly to a primary token to parse a unified scalar factor.
 struct Factor : pegtl::seq<pegtl::opt<pegtl::one<'-'>>, Primary,
+                           pegtl::opt<pegtl::seq<InlineSpace, Suffix>>,
                            pegtl::opt<pegtl::seq<InlineSpace, pegtl::one<'^'>,
-                                                 InlineSpace, Primary>>,
-                           pegtl::opt<pegtl::seq<InlineSpace, Suffix>>> {};
+                                                 InlineSpace, Primary>>> {};
 
 struct OpMulDiv : pegtl::sor<pegtl::one<'*'>, pegtl::one<'/'>> {};
 struct Term : pegtl::list<Factor, OpMulDiv, SpaceOrComment> {};
