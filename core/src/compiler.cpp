@@ -1,10 +1,13 @@
 #include "whis/compiler.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <tao/pegtl.hpp>
 #include <unordered_map>
 
 #include "whis/ast.hpp"
+#include "whis/dimensions.hpp"
 #include "whis/grammar.hpp"
 
 namespace whis::compiler {
@@ -16,6 +19,9 @@ struct ParserState {
   std::vector<whis::ast::Property>      prop_stack;
   std::vector<whis::ast::ControlStmt>   control_stack;
   std::vector<std::string>              id_stack;
+  std::vector<char>                     mul_div_ops;
+  std::vector<char>                     add_sub_ops;
+  std::vector<std::string>              cmp_ops;
   // clang-format on
 
   // Sentinel values used as stack frame markers. Each statement action pushes
@@ -207,6 +213,319 @@ whis::ast::SourceLocation get_loc(const Input& in) {
   return {in.position().source, (uint32_t)in.position().line,
           (uint32_t)in.position().column};
 }
+
+template <>
+struct Action<whis::grammar::OpMulDiv> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    state.mul_div_ops.push_back(in.string()[0]);
+  }
+};
+
+template <>
+struct Action<whis::grammar::OpAddSub> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    state.add_sub_ops.push_back(in.string()[0]);
+  }
+};
+
+template <>
+struct Action<whis::grammar::OpCmp> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    state.cmp_ops.push_back(in.string());
+  }
+};
+
+template <>
+struct Action<whis::grammar::DottedName> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    std::string full_name = in.string();
+
+    whis::ast::Identifier id;
+    id.loc = get_loc(in);
+    id.name = full_name;
+    state.id_stack.push_back(id.name);
+
+    whis::ast::Expression e;
+    e.loc = id.loc;
+    e.data = std::move(id);
+    state.push_expr(std::move(e));
+  }
+};
+
+template <>
+struct Action<whis::grammar::TweakExpr> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    if (state.expr_stack.size() >= 3) {
+      auto max = std::make_unique<whis::ast::Expression>(state.pop_expr());
+      auto min = std::make_unique<whis::ast::Expression>(state.pop_expr());
+      auto initial = std::make_unique<whis::ast::Expression>(state.pop_expr());
+
+      if (!state.id_stack.empty() && state.id_stack.back() == "tweak") {
+        state.id_stack.pop_back();
+        if (!state.expr_stack.empty()) {
+          const auto& back = state.expr_stack.back();
+          if (const auto* id = std::get_if<whis::ast::Identifier>(&back.data)) {
+            if (id->name == "tweak") {
+              state.expr_stack.pop_back();
+            }
+          }
+        }
+      }
+
+      whis::ast::TweakExpr te;
+      te.loc = get_loc(in);
+      te.initial = std::move(initial);
+      te.min = std::move(min);
+      te.max = std::move(max);
+
+      whis::ast::Expression e;
+      e.loc = te.loc;
+      e.data = std::move(te);
+      state.push_expr(std::move(e));
+    }
+  }
+};
+
+template <>
+struct Action<whis::grammar::DottedCall> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    std::string str = in.string();
+    size_t first_paren = str.find('(');
+    size_t last_paren = str.rfind(')');
+    std::string args_str =
+        str.substr(first_paren + 1, last_paren - first_paren - 1);
+
+    int depth = 0;
+    int commas = 0;
+    bool empty = true;
+    size_t i = 0;
+    while (i < args_str.size()) {
+      if (std::isspace(args_str[i])) {
+        ++i;
+      } else if (i + 1 < args_str.size() && args_str[i] == '/' &&
+                 args_str[i + 1] == '/') {
+        i = args_str.find_first_of("\r\n", i);
+        if (i == std::string::npos) break;
+      } else {
+        empty = false;
+        if (args_str[i] == '(' || args_str[i] == '[')
+          ++depth;
+        else if (args_str[i] == ')' || args_str[i] == ']')
+          --depth;
+        else if (args_str[i] == ',' && depth == 0)
+          ++commas;
+        ++i;
+      }
+    }
+    int arg_count = empty ? 0 : (commas + 1);
+
+    std::vector<whis::ast::Expression> args;
+    for (int j = 0; j < arg_count && !state.expr_stack.empty(); ++j) {
+      args.push_back(state.pop_expr());
+    }
+    std::reverse(args.begin(), args.end());
+
+    std::string fn_name;
+    if (!state.expr_stack.empty()) {
+      auto name_expr = state.pop_expr();
+      if (auto* id = std::get_if<whis::ast::Identifier>(&name_expr.data)) {
+        fn_name = id->name;
+      }
+    }
+    if (!state.id_stack.empty() && state.id_stack.back() == fn_name) {
+      state.id_stack.pop_back();
+    }
+
+    whis::ast::CallExpr ce;
+    ce.loc = get_loc(in);
+    ce.name = fn_name;
+    ce.args = std::move(args);
+
+    whis::ast::Expression e;
+    e.loc = ce.loc;
+    e.data = std::move(ce);
+    state.push_expr(std::move(e));
+  }
+};
+
+template <>
+struct Action<whis::grammar::Factor> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    std::string src = in.string();
+    size_t start = src.find_first_not_of(" \t\r\n");
+    if (start == std::string::npos) return;
+    size_t end = src.find_last_not_of(" \t\r\n");
+    src = src.substr(start, end - start + 1);
+
+    bool has_power = false;
+    size_t pos = 0;
+    while ((pos = src.find('^', pos)) != std::string::npos) {
+      bool preceded_by_unit = false;
+      for (const auto& [unit, _] : kUnitScale) {
+        if (pos >= unit.size() &&
+            src.substr(pos - unit.size(), unit.size()) == unit) {
+          size_t unit_start = pos - unit.size();
+          if (unit_start == 0 || (!std::isalnum(src[unit_start - 1]) &&
+                                  src[unit_start - 1] != '_')) {
+            preceded_by_unit = true;
+            break;
+          }
+        }
+      }
+      if (!preceded_by_unit) {
+        has_power = true;
+        break;
+      }
+      pos++;
+    }
+
+    if (has_power) {
+      if (state.expr_stack.size() >= 2) {
+        auto right = std::make_unique<whis::ast::Expression>(state.pop_expr());
+        auto left = std::make_unique<whis::ast::Expression>(state.pop_expr());
+        whis::ast::BinaryExpr be;
+        be.loc = get_loc(in);
+        be.op = whis::ast::BinaryOp::Pow;
+        be.left = std::move(left);
+        be.right = std::move(right);
+
+        whis::ast::Expression e;
+        e.loc = be.loc;
+        e.data = std::move(be);
+        state.push_expr(std::move(e));
+      }
+    }
+
+    if (src[0] == '-') {
+      if (!state.expr_stack.empty()) {
+        auto inner = std::make_unique<whis::ast::Expression>(state.pop_expr());
+        whis::ast::UnaryExpr ue;
+        ue.loc = get_loc(in);
+        ue.op = '-';
+        ue.expr = std::move(inner);
+
+        whis::ast::Expression e;
+        e.loc = ue.loc;
+        e.data = std::move(ue);
+        state.push_expr(std::move(e));
+      }
+    }
+  }
+};
+
+template <>
+struct Action<whis::grammar::Term> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    if (state.mul_div_ops.empty()) return;
+
+    size_t num_ops = state.mul_div_ops.size();
+    std::vector<char> ops = std::move(state.mul_div_ops);
+    state.mul_div_ops.clear();
+
+    std::vector<whis::ast::Expression> exprs;
+    for (size_t i = 0; i <= num_ops && !state.expr_stack.empty(); ++i) {
+      exprs.push_back(state.pop_expr());
+    }
+    std::reverse(exprs.begin(), exprs.end());
+
+    whis::ast::Expression current = std::move(exprs[0]);
+    for (size_t i = 0; i < num_ops; ++i) {
+      char op_char = ops[i];
+      whis::ast::BinaryExpr be;
+      be.loc = current.loc;
+      be.op = (op_char == '*') ? whis::ast::BinaryOp::Mul
+                               : whis::ast::BinaryOp::Div;
+      be.left = std::make_unique<whis::ast::Expression>(std::move(current));
+      be.right =
+          std::make_unique<whis::ast::Expression>(std::move(exprs[i + 1]));
+
+      current.loc = be.loc;
+      current.data = std::move(be);
+    }
+    state.push_expr(std::move(current));
+  }
+};
+
+template <>
+struct Action<whis::grammar::ArithExpr> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    if (state.add_sub_ops.empty()) return;
+
+    size_t num_ops = state.add_sub_ops.size();
+    std::vector<char> ops = std::move(state.add_sub_ops);
+    state.add_sub_ops.clear();
+
+    std::vector<whis::ast::Expression> exprs;
+    for (size_t i = 0; i <= num_ops && !state.expr_stack.empty(); ++i) {
+      exprs.push_back(state.pop_expr());
+    }
+    std::reverse(exprs.begin(), exprs.end());
+
+    whis::ast::Expression current = std::move(exprs[0]);
+    for (size_t i = 0; i < num_ops; ++i) {
+      char op_char = ops[i];
+      whis::ast::BinaryExpr be;
+      be.loc = current.loc;
+      be.op = (op_char == '+') ? whis::ast::BinaryOp::Add
+                               : whis::ast::BinaryOp::Sub;
+      be.left = std::make_unique<whis::ast::Expression>(std::move(current));
+      be.right =
+          std::make_unique<whis::ast::Expression>(std::move(exprs[i + 1]));
+
+      current.loc = be.loc;
+      current.data = std::move(be);
+    }
+    state.push_expr(std::move(current));
+  }
+};
+
+template <>
+struct Action<whis::grammar::Expression> {
+  template <typename Input>
+  static void apply(const Input& in, ParserState& state) {
+    if (state.cmp_ops.empty()) return;
+
+    std::string op_str = state.cmp_ops.back();
+    state.cmp_ops.pop_back();
+
+    if (state.expr_stack.size() >= 2) {
+      auto right = std::make_unique<whis::ast::Expression>(state.pop_expr());
+      auto left = std::make_unique<whis::ast::Expression>(state.pop_expr());
+
+      whis::ast::BinaryExpr be;
+      be.loc = get_loc(in);
+      if (op_str == "==")
+        be.op = whis::ast::BinaryOp::Eq;
+      else if (op_str == "!=")
+        be.op = whis::ast::BinaryOp::Ne;
+      else if (op_str == "<")
+        be.op = whis::ast::BinaryOp::Lt;
+      else if (op_str == "<=")
+        be.op = whis::ast::BinaryOp::Le;
+      else if (op_str == ">")
+        be.op = whis::ast::BinaryOp::Gt;
+      else if (op_str == ">=")
+        be.op = whis::ast::BinaryOp::Ge;
+
+      be.left = std::move(left);
+      be.right = std::move(right);
+
+      whis::ast::Expression e;
+      e.loc = be.loc;
+      e.data = std::move(be);
+      state.push_expr(std::move(e));
+    }
+  }
+};
 
 // Suffix fires after Factor has already pushed the numeric DimensionedValue.
 // We find that value on top of expr_stack and apply the SI transformation.
@@ -528,6 +847,29 @@ struct Action<whis::grammar::ControlStmt> {
   }
 };
 
+ParseResult parse_only(const std::string& source) {
+  if (source.empty()) return {false, "Empty source input buffer", 1, 1, {}};
+
+  tao::pegtl::string_input<> input(source, "whis_spec_target");
+  ParserState state;
+  try {
+    bool ok = tao::pegtl::parse<whis::grammar::Program, Action>(input, state);
+    if (!ok)
+      return {false,
+              "Grammar structure mismatched top-level rules (returned false)",
+              input.position().line, input.position().column,
+              std::move(state.program)};
+    return {true, "", 0, 0, std::move(state.program)};
+  } catch (const tao::pegtl::parse_error& e) {
+    size_t l = 1, c = 1;
+    if (!e.positions().empty()) {
+      l = e.positions().front().line;
+      c = e.positions().front().column;
+    }
+    return {false, e.what(), l, c, std::move(state.program)};
+  }
+}
+
 ParseResult generate_ast(const std::string& source) {
   if (source.empty()) {
     return {false, "Empty source input buffer", 1, 1, {}};
@@ -546,7 +888,16 @@ ParseResult generate_ast(const std::string& source) {
               std::move(state.program)};
     }
 
+    // §2.1 / §2.2 — run compile-time dimensional analysis pass over the
+    // fully-constructed AST before handing it to downstream consumers.
+    // Violations surface as DimError; map them into the standard ParseResult
+    // diagnostic fields so callers observe a uniform failure contract.
+    whis::dimensions::check(state.program);
+
     return {true, "", 0, 0, std::move(state.program)};
+  } catch (const whis::dimensions::DimError& e) {
+    return {false, e.what(), e.loc.line, e.loc.column,
+            std::move(state.program)};
   } catch (const tao::pegtl::parse_error& e) {
     size_t error_line = 1;
     size_t error_col = 1;
