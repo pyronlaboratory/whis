@@ -51,8 +51,7 @@ void run_ast_integrity_tests() {
   }
 
   {
-    print_case_start(
-        "Structural Integrity: 45 cm normalises to 0.45 (SI baseline)");
+    print_case_start("Structural Integrity: 45 cm normalises to 0.45 m");
     auto result = whis::compiler::generate_ast("let x = 45 cm;");
     WHIS_ASSERT(result.success, "Parse failed: " + result.error_log);
     const auto& stmt =
@@ -78,6 +77,41 @@ void run_ast_integrity_tests() {
     const whis::ast::DimArray expected = {1, 0, 0, 0, 0, 0, 0};
     WHIS_ASSERT(dv.dimensions == expected,
                 "Dimension array mismatch for mg (mass)");
+    print_case_success();
+  }
+
+  {
+    print_case_start("Structural Integrity: 900 km/h normalises to 250.0 m/s");
+    auto result = whis::compiler::generate_ast("let v = 900 km/h;");
+    WHIS_ASSERT(result.success, "Parse failed: " + result.error_log);
+    const auto& stmt =
+        std::get<whis::ast::LetStmt>(result.ast.statements[0].data);
+    const auto& dv = std::get<whis::ast::DimensionedValue>(stmt.value->data);
+    WHIS_ASSERT(std::abs(dv.value - 250.0) < 1e-9,
+                "Expected 250.0, got " + std::to_string(dv.value));
+    const whis::ast::DimArray expected = {0, 1, -1, 0, 0, 0, 0};  // L^1 T^-1
+    WHIS_ASSERT(dv.dimensions == expected,
+                "Dimension array mismatch for km/h (velocity)");
+    print_case_success();
+  }
+
+  {
+    print_case_start(
+        "Structural Integrity: G constant normalises value and dimensions");
+    auto result =
+        whis::compiler::generate_ast("let G = 6.6743e-11 N*m^2/kg^2;");
+    WHIS_ASSERT(result.success, "Parse failed: " + result.error_log);
+    const auto& stmt =
+        std::get<whis::ast::LetStmt>(result.ast.statements[0].data);
+    const auto& dv = std::get<whis::ast::DimensionedValue>(stmt.value->data);
+    // Value check (relative to SI baseline): 6.6743e-11
+    WHIS_ASSERT(std::abs(dv.value - 6.6743e-11) < 1e-22,
+                "Expected 6.6743e-11, got " + std::to_string(dv.value));
+    // Dimension check: N * m^2 / kg^2 = (M^1 L^1 T^-2) * L^2 / M^2 = M^-1 L^3
+    // T^-2
+    const whis::ast::DimArray expected = {-1, 3, -2, 0, 0, 0, 0};
+    WHIS_ASSERT(dv.dimensions == expected,
+                "Dimension array mismatch for N*m^2/kg^2");
     print_case_success();
   }
 
