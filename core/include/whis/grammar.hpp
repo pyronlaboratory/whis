@@ -130,13 +130,17 @@ struct UnitAtom
 struct BaseUnit : pegtl::seq<UnitAtom, pegtl::not_at<pegtl::identifier_other>> {
 };
 
-// Explicitly isolates structural dimensional exponents (like m/s^2) inside the
-// suffix sub-tree to prevent them from leaking into the scalar mathematical
-// expression parser.
+// Digits-only rule for suffix exponents (e.g. the '2' in s^2). Deliberately
+// distinct from NumericLiteral so Action<NumericLiteral> does not fire and
+// pollute expr_stack — apply_suffix() re-parses this from the raw suffix
+// string directly, it never needs it on the stack.
+struct SuffixExponent
+    : pegtl::seq<pegtl::opt<Sign>, pegtl::plus<pegtl::digit>> {};
+
 struct SuffixTerm
     : pegtl::seq<BaseUnit,
-                 pegtl::opt<pegtl::seq<pegtl::one<'^'>, pegtl::opt<Sign>,
-                                       NumericLiteral>>> {};
+                 pegtl::opt<pegtl::seq<pegtl::one<'^'>, SuffixExponent>>> {};
+
 struct SuffixMul
     : pegtl::seq<SuffixTerm,
                  pegtl::star<pegtl::seq<pegtl::one<'*'>, SuffixTerm>>> {};

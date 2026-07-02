@@ -535,12 +535,10 @@ struct Action<whis::grammar::Suffix> {
   static void apply(const Input& in, ParserState& state) {
     if (state.expr_stack.empty()) return;
 
-    // Walk from bottom up (oldest first) to find the numeric value this
-    // suffix belongs to, not the exponent literals pushed by SuffixTerm.
-    for (size_t i = 0; i < state.expr_stack.size(); ++i) {
+    // Reverse-scan the stack
+    for (size_t i = state.expr_stack.size(); i-- > 0;) {
       auto* dv =
           std::get_if<whis::ast::DimensionedValue>(&state.expr_stack[i].data);
-
       if (dv && !dv->suffix_applied) {
         apply_suffix(in.string(), *dv);
         dv->suffix_applied = true;
